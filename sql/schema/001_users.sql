@@ -5,9 +5,7 @@ CREATE TABLE users(
     updated_at TIMESTAMP,
     email TEXT UNIQUE NOT NULL
 );
-
-
--- postgres://postgres:@localhost:5432/chirpy
+ 
 
 -- +goose Down
 DROP TABLE users;
