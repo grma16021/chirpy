@@ -29,6 +29,14 @@ type User struct {
 	Email     string    `json:"email"`
 }
 
+type Chirp struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Body      string    `json:"body"`
+	UserId    uuid.UUID `json:"user_id"`
+}
+
 func (cfg *apiConfig) middleWareMetricsInc(next http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,8 +63,8 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", handlerHealth)
 	mux.HandleFunc("GET /admin/metrics", cfg.handlercount)
 	mux.HandleFunc("POST /admin/reset", cfg.handlerResetcount)
-	mux.HandleFunc("POST /api/validate_chirp", handlerValidateChirp)
 	mux.HandleFunc("POST /api/users", cfg.handlerRegisterUser)
+	mux.HandleFunc("POST /api/chirps", cfg.handlerPostChirp)
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: mux,
@@ -110,9 +118,10 @@ func (cfg *apiConfig) handlerRegisterUser(w http.ResponseWriter, r *http.Request
 
 }
 
-func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Test string `json:"body"`
+		Body    string    `json:"body"`
+		User_id uuid.UUID `json:"user_id"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -124,36 +133,30 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(params.Test) <= 140 {
+	if len(params.Body) <= 140 {
+		clean := cleanString(params.Body)
 
-		clean := cleanString(params.Test)
-
-		type returnVals struct {
-			Cleaned_body string `json:"cleaned_body"`
+		chirpParams := database.CreateChirpParams{
+			Body:   clean,
+			UserID: params.User_id,
 		}
 
-		respBody := returnVals{
-			Cleaned_body: clean,
-		}
-
-		dat, err := json.Marshal(respBody)
+		DbChirp, err := cfg.db.CreateChirp(r.Context(), chirpParams)
 		if err != nil {
-			log.Printf("Error marshaling json: %s", err)
+			log.Printf("Error Creating chirp: %s", err)
 			w.WriteHeader(500)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		w.Write(dat)
-	} else {
-		type returnVals struct {
-			Error string `json:"error"`
+		apiChirp := Chirp{
+			ID:        DbChirp.ID,
+			CreatedAt: DbChirp.CreatedAt.Time,
+			UpdatedAt: DbChirp.UpdatedAt.Time,
+			Body:      DbChirp.Body,
+			UserId:    DbChirp.UserID,
 		}
 
-		respBody := returnVals{
-			Error: "Chirp is too long",
-		}
+		respBody := apiChirp
 
 		dat, err := json.Marshal(respBody)
 		if err != nil {
@@ -163,10 +166,9 @@ func handlerValidateChirp(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(400)
+		w.WriteHeader(201)
 		w.Write(dat)
 	}
-
 }
 
 func cleanString(s string) string {
