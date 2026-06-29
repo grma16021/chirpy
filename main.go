@@ -65,6 +65,8 @@ func main() {
 	mux.HandleFunc("POST /admin/reset", cfg.handlerResetcount)
 	mux.HandleFunc("POST /api/users", cfg.handlerRegisterUser)
 	mux.HandleFunc("POST /api/chirps", cfg.handlerPostChirp)
+	mux.HandleFunc("GET /api/chirps", cfg.handlerGetChirps)
+	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: mux,
@@ -75,6 +77,79 @@ func main() {
 		log.Fatal(err)
 	}
 
+}
+
+func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
+
+	chripIDSTR := r.PathValue("chirpID")
+
+	chirpID, err := uuid.Parse(chripIDSTR)
+	if err != nil {
+		log.Printf("Error parsing id: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	chirp, err := cfg.db.GetChirpById(r.Context(), chirpID)
+	if err != nil {
+		log.Printf("Error fetching chirp: %s", err)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	apiChirp := Chirp{
+		ID:        chirp.ID,
+		CreatedAt: chirp.CreatedAt.Time,
+		UpdatedAt: chirp.UpdatedAt.Time,
+		Body:      chirp.Body,
+		UserId:    chirp.UserID,
+	}
+
+	dat, err := json.Marshal(apiChirp)
+	if err != nil {
+		log.Printf("Error marshalling json: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(dat)
+}
+
+func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
+	chirps, err := cfg.db.GetAllChrips(r.Context())
+	if err != nil {
+		log.Printf("Error fetching chirps: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	chirpArray := []Chirp{}
+
+	for _, chirp := range chirps {
+		apiChirp := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt.Time,
+			UpdatedAt: chirp.UpdatedAt.Time,
+			Body:      chirp.Body,
+			UserId:    chirp.UserID,
+		}
+
+		chirpArray = append(chirpArray, apiChirp)
+	}
+
+	respBody := chirpArray
+
+	dat, err := json.Marshal(respBody)
+	if err != nil {
+		log.Printf("error marshaling json: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	w.Write(dat)
 }
 
 func (cfg *apiConfig) handlerRegisterUser(w http.ResponseWriter, r *http.Request) {
