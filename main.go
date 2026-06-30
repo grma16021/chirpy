@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/grma16021/chirpy/internal/auth"
 	"github.com/grma16021/chirpy/internal/database"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
@@ -27,6 +28,7 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Password  string    `json:"password"`
 }
 
 type Chirp struct {
@@ -67,6 +69,7 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", cfg.handlerPostChirp)
 	mux.HandleFunc("GET /api/chirps", cfg.handlerGetChirps)
 	mux.HandleFunc("GET /api/chirps/{chirpID}", cfg.handlerGetChirp)
+	mux.HandleFunc("POST /api/login", cfg.handlerLogin)
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: mux,
@@ -77,6 +80,10 @@ func main() {
 		log.Fatal(err)
 	}
 
+}
+
+func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
+	// add login logic
 }
 
 func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
@@ -154,7 +161,8 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) handlerRegisterUser(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Email string `json:"email"`
+		Password string `json:"password"`
+		Email    string `json:"email"`
 	}
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
@@ -164,7 +172,25 @@ func (cfg *apiConfig) handlerRegisterUser(w http.ResponseWriter, r *http.Request
 		w.WriteHeader(500)
 		return
 	}
-	Dbuser, err := cfg.db.CreateUser(r.Context(), params.Email)
+
+	if params.Email == "" || params.Password == "" {
+		w.WriteHeader(400)
+		w.Write([]byte("Error email and password must be provided"))
+	}
+
+	hashedPass, err := auth.HashPassword(params.Password)
+	if err != nil {
+		log.Printf("Error Hashing password: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	CreateUser := database.CreateUserParams{
+		Email:          params.Email,
+		HashedPassword: hashedPass,
+	}
+
+	Dbuser, err := cfg.db.CreateUser(r.Context(), CreateUser)
 	if err != nil {
 		log.Printf("Error Creating user: %s", err)
 		w.WriteHeader(500)
