@@ -21,6 +21,7 @@ import (
 type apiConfig struct {
 	fileServerHits atomic.Int32
 	db             *database.Queries
+	secret         string
 }
 
 type User struct {
@@ -29,6 +30,7 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
 	Password  string    `json:"password"`
+	Token     string    `json:"token"`
 }
 
 type Chirp struct {
@@ -51,6 +53,7 @@ func main() {
 	godotenv.Load()
 
 	dbURL := os.Getenv("DB_URL")
+	JWTsecret := os.Getenv("SECRET")
 
 	db, err := sql.Open("postgres", dbURL)
 	dbQueries := database.New(db)
@@ -58,6 +61,7 @@ func main() {
 	var cfg = apiConfig{
 		fileServerHits: atomic.Int32{},
 		db:             dbQueries,
+		secret:         JWTsecret,
 	}
 
 	mux := http.NewServeMux()
@@ -84,8 +88,9 @@ func main() {
 
 func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 	type parameters struct {
-		Password string `json:"password"`
-		Email    string `json:"email"`
+		Password         string `json:"password"`
+		Email            string `json:"email"`
+		ExpiresInSeconds int    `json:"expires_in_seconds"`
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -113,11 +118,23 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Incorrect email or password"))
 	}
 
+	if params.ExpiresInSeconds == 0 || params.ExpiresInSeconds >= 3600 {
+		params.ExpiresInSeconds = 3600
+	}
+
+	JWTToken, err := auth.MakeJWT(user.ID, cfg.secret, time.Duration(params.ExpiresInSeconds)*time.Second)
+	if err != nil {
+		log.Printf("error making JWT token %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
 	apiUser := User{
 		ID:        user.ID,
 		CreatedAt: user.CreatedAt.Time,
 		UpdatedAt: user.UpdatedAt.Time,
 		Email:     user.Email,
+		Token:     JWTToken,
 	}
 
 	dat, err := json.Marshal(apiUser)
@@ -271,9 +288,23 @@ func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 		User_id uuid.UUID `json:"user_id"`
 	}
 
+	token, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Printf("Error getting token: %s", err)
+		w.WriteHeader(400)
+		return
+	}
+
+	validUserID, err := auth.ValidateJWT(token, cfg.secret)
+	if err != nil {
+		log.Printf("error validating token: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("Error decoding parameters: %s", err)
 		w.WriteHeader(500)
@@ -285,7 +316,7 @@ func (cfg *apiConfig) handlerPostChirp(w http.ResponseWriter, r *http.Request) {
 
 		chirpParams := database.CreateChirpParams{
 			Body:   clean,
-			UserID: params.User_id,
+			UserID: validUserID,
 		}
 
 		DbChirp, err := cfg.db.CreateChirp(r.Context(), chirpParams)
