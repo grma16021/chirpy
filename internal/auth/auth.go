@@ -2,8 +2,12 @@ package auth
 
 import (
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/alexedwards/argon2id"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 func HashPassword(password string) (string, error) {
@@ -23,4 +27,44 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 
 	return match, nil
 
+}
+
+func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
+
+	//signingKey := []byte("keystuff")
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Issuer:    "chirpy-access",
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiresIn)),
+		Subject:   userID.String(),
+	})
+
+	ss, err := token.SignedString([]byte(tokenSecret))
+	if err != nil {
+		return "", err
+	}
+
+	return ss, nil
+}
+
+func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+
+	type myClaims struct {
+		jwt.RegisteredClaims
+	}
+
+	token, err := jwt.ParseWithClaims(tokenString, &myClaims{}, func(token *jwt.Token) (any, error) {
+		return []byte(tokenSecret), nil
+	})
+	if err != nil {
+		return uuid.Nil, err
+	} else if claims, ok := token.Claims.(*myClaims); ok {
+		//fmt.Println(claims.Subject)
+		userID := claims.Subject
+		return uuid.Parse(userID)
+	} else {
+		log.Fatal("unknown claims type cannot proceed")
+	}
+
+	return uuid.Nil, err
 }
