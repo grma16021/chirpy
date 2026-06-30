@@ -3,6 +3,8 @@ package auth
 import (
 	"fmt"
 	"log"
+	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alexedwards/argon2id"
@@ -31,7 +33,6 @@ func CheckPasswordHash(password, hash string) (bool, error) {
 
 func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (string, error) {
 
-	//signingKey := []byte("keystuff")
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
 		Issuer:    "chirpy-access",
 		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
@@ -67,4 +68,14 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	}
 
 	return uuid.Nil, err
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	tokenHeader := headers.Get("Authorization")
+	if tokenHeader == "" {
+		return "", fmt.Errorf("error getting token from header")
+	}
+	splitHeader := strings.Split(tokenHeader, " ")
+	token := splitHeader[1]
+	return token, nil
 }
