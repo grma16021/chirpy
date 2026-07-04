@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -456,6 +457,7 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
 	author := r.URL.Query().Get("author_id")
+	sort := r.URL.Query().Get("sort")
 	var chirps []database.Chirp
 	var err error
 
@@ -494,6 +496,10 @@ func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
 		}
 
 		chirpArray = append(chirpArray, apiChirp)
+	}
+
+	if sort == "desc" {
+		slices.Reverse(chirpArray)
 	}
 
 	respBody := chirpArray
