@@ -32,6 +32,7 @@ type User struct {
 	Password     string    `json:"password"`
 	Token        string    `json:"token"`
 	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 type Chirp struct {
@@ -79,6 +80,7 @@ func main() {
 	mux.HandleFunc("POST /api/revoke", cfg.handlerRevoke)
 	mux.HandleFunc("PUT /api/users", cfg.handlerUpdateUsers)
 	mux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.handlerDeleteChirp)
+	mux.HandleFunc("POST /api/polka/webhooks", cfg.handlerUpgardeuser)
 	server := &http.Server{
 		Addr:    ":8080",
 		Handler: mux,
@@ -88,6 +90,41 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+}
+
+func (cfg *apiConfig) handlerUpgardeuser(w http.ResponseWriter, r *http.Request) {
+	type Parameters struct {
+		Event string `json:"event"`
+		Data  struct {
+			UserID uuid.UUID `json:"user_id"`
+		} `json:"data"`
+	}
+	params := Parameters{}
+	decoder := json.NewDecoder(r.Body)
+
+	err := decoder.Decode(&params)
+	if err != nil {
+		log.Printf("error decoding json: %s", err)
+		w.WriteHeader(500)
+		return
+	}
+
+	if params.Event != "user.upgraded" {
+		w.WriteHeader(204)
+		return
+	}
+
+	userID := params.Data.UserID
+
+	_, err = cfg.db.UpgradeUser(r.Context(), userID)
+	if err != nil {
+		log.Printf("error upgrading user: %s", err)
+		w.WriteHeader(404)
+		return
+	}
+
+	w.WriteHeader(204)
 
 }
 
@@ -195,11 +232,13 @@ func (cfg *apiConfig) handlerUpdateUsers(w http.ResponseWriter, r *http.Request)
 	}
 
 	type returnParams struct {
-		Email string `json:"email"`
+		Email       string `json:"email"`
+		IsChirpyRed bool   `json:"is_chirpy_red"`
 	}
 
 	apiUser := returnParams{
-		Email: updatedUser.Email,
+		Email:       updatedUser.Email,
+		IsChirpyRed: updatedUser.IsChirpyRed,
 	}
 
 	dat, err := json.Marshal(apiUser)
@@ -346,6 +385,7 @@ func (cfg *apiConfig) handlerLogin(w http.ResponseWriter, r *http.Request) {
 		Email:        user.Email,
 		Token:        JWTToken,
 		RefreshToken: JWTRefreshToken,
+		IsChirpyRed:  user.IsChirpyRed,
 	}
 
 	dat, err := json.Marshal(apiUser)
@@ -472,10 +512,11 @@ func (cfg *apiConfig) handlerRegisterUser(w http.ResponseWriter, r *http.Request
 	}
 
 	apiUser := User{
-		ID:        Dbuser.ID,
-		CreatedAt: Dbuser.CreatedAt.Time,
-		UpdatedAt: Dbuser.UpdatedAt.Time,
-		Email:     Dbuser.Email,
+		ID:          Dbuser.ID,
+		CreatedAt:   Dbuser.CreatedAt.Time,
+		UpdatedAt:   Dbuser.UpdatedAt.Time,
+		Email:       Dbuser.Email,
+		IsChirpyRed: Dbuser.IsChirpyRed,
 	}
 
 	respBody := apiUser
