@@ -22,6 +22,7 @@ type apiConfig struct {
 	fileServerHits atomic.Int32
 	db             *database.Queries
 	secret         string
+	apiKey         string
 }
 
 type User struct {
@@ -56,6 +57,7 @@ func main() {
 
 	dbURL := os.Getenv("DB_URL")
 	JWTsecret := os.Getenv("SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 
 	db, err := sql.Open("postgres", dbURL)
 	dbQueries := database.New(db)
@@ -64,6 +66,7 @@ func main() {
 		fileServerHits: atomic.Int32{},
 		db:             dbQueries,
 		secret:         JWTsecret,
+		apiKey:         polkaKey,
 	}
 
 	mux := http.NewServeMux()
@@ -94,6 +97,20 @@ func main() {
 }
 
 func (cfg *apiConfig) handlerUpgardeuser(w http.ResponseWriter, r *http.Request) {
+
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		log.Printf("erro getting api key from header: %s", err)
+		w.WriteHeader(401)
+		return
+	}
+
+	if apiKey != cfg.apiKey {
+		log.Printf("error api key miss match")
+		w.WriteHeader(403)
+		return
+	}
+
 	type Parameters struct {
 		Event string `json:"event"`
 		Data  struct {
@@ -103,7 +120,7 @@ func (cfg *apiConfig) handlerUpgardeuser(w http.ResponseWriter, r *http.Request)
 	params := Parameters{}
 	decoder := json.NewDecoder(r.Body)
 
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		log.Printf("error decoding json: %s", err)
 		w.WriteHeader(500)
@@ -438,11 +455,31 @@ func (cfg *apiConfig) handlerGetChirp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (cfg *apiConfig) handlerGetChirps(w http.ResponseWriter, r *http.Request) {
-	chirps, err := cfg.db.GetAllChrips(r.Context())
-	if err != nil {
-		log.Printf("Error fetching chirps: %s", err)
-		w.WriteHeader(500)
-		return
+	author := r.URL.Query().Get("author_id")
+	var chirps []database.Chirp
+	var err error
+
+	if author != "" {
+		authorID, err := uuid.Parse(author)
+		if err != nil {
+			log.Printf("error parsing author id: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+		chirps, err = cfg.db.GetChirpsFromUser(r.Context(), authorID)
+		if err != nil {
+			log.Printf("error getching chirps from user: %s", err)
+			w.WriteHeader(500)
+			return
+		}
+
+	} else {
+		chirps, err = cfg.db.GetAllChrips(r.Context())
+		if err != nil {
+			log.Printf("Error fetching chirps: %s", err)
+			w.WriteHeader(500)
+			return
+		}
 	}
 
 	chirpArray := []Chirp{}
